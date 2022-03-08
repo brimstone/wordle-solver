@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"embed"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -9,6 +11,9 @@ import (
 	"sort"
 	"strings"
 )
+
+//go:embed wordles.txt
+var words embed.FS
 
 type Guess struct {
 	Word   string
@@ -136,23 +141,44 @@ func getBestGuess(candidates []string) string {
 	return guess
 }
 
+type Config struct {
+	ShowCandidateCount bool
+	ShowBestGuess      bool
+}
+
+var config Config
+
 func main() {
+	flag.BoolVar(&config.ShowCandidateCount, "c", false, "Show count of possible candidates")
+	flag.BoolVar(&config.ShowBestGuess, "g", false, "Show best guess")
+
+	flag.Parse()
+
 	validWord := regexp.MustCompile("^[a-z]{5}$")
 
-	guesses := []Guess{
-		Guess{Word: "salet", Result: "_ygy_"},
-		Guess{Word: "abide", Result: "y___y"},
-		Guess{Word: "relay", Result: "_ggy_"},
+	var guesses []Guess
+
+	for _, a := range flag.Args() {
+		p := strings.Split(a, ":")
+		if len(p) != 2 {
+			fmt.Printf("argument %#v is not the right length\n", a)
+			os.Exit(1)
+		}
+		if len(p[0]) != len(p[1]) {
+			fmt.Printf("Guess and result are not of the same length: %s: %d != %d\n", a, len(p[0]), len(p[1]))
+			os.Exit(1)
+		}
+		guesses = append(guesses, Guess{Word: p[0], Result: p[1]})
 	}
 
 	yellows := getYellows(guesses)
-	fmt.Printf("Yellows: %#v\n", strings.Join(yellows, ""))
+	//fmt.Printf("Yellows: %#v\n", strings.Join(yellows, ""))
 
 	regexPattern := buildRegex(guesses)
-	fmt.Printf("Pattern: %#v\n", regexPattern)
+	//fmt.Printf("Pattern: %#v\n", regexPattern)
 	validGuess := regexp.MustCompile(regexPattern)
 
-	file, err := os.Open("/usr/share/dict/words")
+	file, err := words.Open("wordles.txt")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -177,7 +203,7 @@ func main() {
 			}
 		}
 		if foundYellow {
-			fmt.Printf("Adding candidates: %s\n", t)
+			//fmt.Printf("Adding candidates: %s\n", t)
 			candidates = append(candidates, t)
 		}
 	}
@@ -188,6 +214,21 @@ func main() {
 
 	bestGuess := getBestGuess(candidates)
 
-	fmt.Printf("Try: %s\n", bestGuess)
+	output := false
+	if config.ShowCandidateCount {
+		fmt.Printf("Possible Candidates: %d\n", len(candidates))
+		output = true
+	}
+	if config.ShowBestGuess {
+		fmt.Printf("Best Guess: %s\n", bestGuess)
+		output = true
+	}
+	if !output {
+		if len(candidates) > 0 {
+			fmt.Println("Hmm, yes, there's a wordle")
+		} else {
+			fmt.Println("Nope, no wordle here")
+		}
+	}
 
 }
