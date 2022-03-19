@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -60,6 +61,11 @@ func getYellows(guesses []Guess) []string {
 				greens = append(greens, g.WordA()[i])
 				continue
 			}
+			if g.ResultA()[i] == "_" {
+				continue
+			}
+			log.Fatal(fmt.Sprintf("Marker: \"%s\" is unknown", g.ResultA()[i]))
+
 		}
 	}
 	for _, green := range greens {
@@ -146,36 +152,11 @@ type Config struct {
 	ShowBestGuess      bool
 }
 
-var config Config
-
-func main() {
-	flag.BoolVar(&config.ShowCandidateCount, "c", false, "Show count of possible candidates")
-	flag.BoolVar(&config.ShowBestGuess, "g", false, "Show best guess")
-
-	flag.Parse()
-
+func solve(guesses []Guess) (string, int) {
 	validWord := regexp.MustCompile("^[a-z]{5}$")
 
-	var guesses []Guess
-
-	for _, a := range flag.Args() {
-		p := strings.Split(a, ":")
-		if len(p) != 2 {
-			fmt.Printf("argument %#v is not the right length\n", a)
-			os.Exit(1)
-		}
-		if len(p[0]) != len(p[1]) {
-			fmt.Printf("Guess and result are not of the same length: %s: %d != %d\n", a, len(p[0]), len(p[1]))
-			os.Exit(1)
-		}
-		guesses = append(guesses, Guess{Word: p[0], Result: p[1]})
-	}
-
 	yellows := getYellows(guesses)
-	//fmt.Printf("Yellows: %#v\n", strings.Join(yellows, ""))
-
 	regexPattern := buildRegex(guesses)
-	//fmt.Printf("Pattern: %#v\n", regexPattern)
 	validGuess := regexp.MustCompile(regexPattern)
 
 	file, err := words.Open("wordles.txt")
@@ -213,18 +194,88 @@ func main() {
 	}
 
 	bestGuess := getBestGuess(candidates)
+	return bestGuess, len(candidates)
+}
+
+var config Config
+
+func main() {
+	flag.BoolVar(&config.ShowCandidateCount, "c", false, "Show count of possible candidates")
+	flag.BoolVar(&config.ShowBestGuess, "g", false, "Show best guess")
+
+	flag.Parse()
+
+	var guesses [][]Guess
+	var solved []bool
+
+	for _, a := range flag.Args() {
+		p := strings.Split(a, ":")
+		if len(p) < 2 {
+			fmt.Printf("argument %#v is not the right length\n", a)
+			os.Exit(1)
+		}
+		for i := 1; i < len(p); i++ {
+			if len(guesses) < i {
+				guesses = append(guesses, []Guess{})
+				solved = append(solved, false)
+			}
+			if len(p[0]) != len(p[i]) {
+				fmt.Printf("Guess and result are not of the same length: %s:%s: %d != %d\n", p[0], p[i], len(p[0]), len(p[i]))
+				os.Exit(1)
+			}
+			guesses[i-1] = append(guesses[i-1], Guess{Word: p[0], Result: strings.ToLower(p[i])})
+			if strings.ToLower(p[i]) == "ggggg" {
+				solved[i-1] = true
+			}
+			//fmt.Printf("Guesses: %s %#v\n", p[i], guesses)
+		}
+	}
+
+	var bestguesses []string
+	var candidates []int
+	for g := range guesses {
+		b, c := solve(guesses[g])
+		bestguesses = append(bestguesses, b)
+		candidates = append(candidates, c)
+	}
 
 	output := false
 	if config.ShowCandidateCount {
-		fmt.Printf("Possible Candidates: %d\n", len(candidates))
+		o := ""
+		for _, c := range candidates {
+			o += ", " + strconv.FormatInt(int64(c), 10)
+		}
+		fmt.Printf("Possible Candidates: %s\n", o[2:])
 		output = true
 	}
 	if config.ShowBestGuess {
-		fmt.Printf("Best Guess: %s\n", bestGuess)
+		n := ""
+		if len(candidates) > 1 {
+			n = "es"
+		}
+		fmt.Printf("Best Guess%s: %s\n", n, strings.Join(bestguesses, ", "))
 		output = true
+		if len(candidates) > 1 {
+			m := 0
+			for i, s := range solved {
+				m = i
+				if !s {
+					break
+				}
+			}
+			for i, c := range candidates {
+				if solved[i] {
+					continue
+				}
+				if candidates[m] > c {
+					m = i
+				}
+			}
+			fmt.Printf("Bestest Guess: %s\n", bestguesses[m])
+		}
 	}
 	if !output {
-		if len(candidates) > 0 {
+		if candidates[0] > 0 {
 			fmt.Println("Hmm, yes, there's a wordle")
 		} else {
 			fmt.Println("Nope, no wordle here")
